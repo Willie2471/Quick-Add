@@ -127,6 +127,7 @@ summary{font-weight:800;color:var(--gd);font-size:14px;padding:8px 0;cursor:poin
 
     <button class="tile" data-act="go-repair"><div class="ic">&#128295;</div><div><b>Report a Repair</b><span class="s">Equipment broken, leaking, making noise</span></div></button>
     <button class="tile" data-act="go-supply"><div class="ic">&#128722;</div><div><b>Add Supply Item</b><span class="s">Trimmer line, fuel, blades, anything to get</span></div></button>
+    <button class="tile" data-act="go-ticket"><div class="ic">&#127915;</div><div><b>Support ticket</b><span class="s">IT help, field issue, procedure question</span></div></button>
 
     <h2 class="sec">Sent from this phone</h2>
     <div id="recent"></div>
@@ -192,6 +193,36 @@ summary{font-weight:800;color:var(--gd);font-size:14px;padding:8px 0;cursor:poin
       </details>
       <div class="err" id="s-err"></div>
       <button class="btn submit" data-act="submit-supply">&#10004; Add to List</button>
+    </div>
+  </section>
+
+  <!-- SUPPORT TICKET -->
+  <section class="view" id="v-ticket">
+    <div class="card">
+      <h3>&#127915; Support ticket</h3>
+      <div class="empty" id="t-msg">Loading...</div>
+      <div id="t-login" style="display:none">
+        <div class="hint" style="margin:-6px 0 12px">Sign in once with your Staff Hub email and password. This phone will remember you.</div>
+        <div class="f"><label for="t-em">Email</label><input id="t-em" type="email" autocomplete="username" autocapitalize="none"></div>
+        <div class="f"><label for="t-pw">Password</label><input id="t-pw" type="password" autocomplete="current-password"></div>
+        <div class="err" id="t-lerr"></div>
+        <button class="btn submit" id="t-signin">Sign in</button>
+      </div>
+      <div id="t-form" style="display:none">
+        <div class="hint" style="margin:-6px 0 12px"><span id="t-who"></span> &#183; <a href="#" id="t-out" style="color:var(--gd);font-weight:700">Sign out</a></div>
+        <div class="f"><label for="t-title">What's going on? (short title)</label><input id="t-title" maxlength="120" autocomplete="off"></div>
+        <div class="f"><label for="t-cat">Category</label><select id="t-cat"></select></div>
+        <div class="f"><label for="t-pri">Priority</label><select id="t-pri"></select></div>
+        <div class="f"><label for="t-desc">Details</label><textarea id="t-desc" placeholder="What happened? Where? What have you tried?"></textarea></div>
+        <div class="f"><label>Photos (optional)</label>
+          <button type="button" class="btn sec ph-add" id="t-addph" style="width:auto;padding:0 16px">&#128247; Add photos</button>
+          <span class="ph-note" id="t-phnote"></span>
+          <input type="file" id="t-file" accept="image/*" multiple style="display:none">
+        </div>
+        <div class="f"><label for="t-assign">Assign to (optional)</label><select id="t-assign"><option value="">Unassigned</option></select></div>
+        <div class="err" id="t-err"></div>
+        <button class="btn submit" id="t-submit">Submit ticket</button>
+      </div>
     </div>
   </section>
 
@@ -347,13 +378,14 @@ function apiPostPhoto(body, cb) {
 
 /* ---------- views ---------- */
 function show(name) {
-  ['home', 'repair', 'supply'].forEach(function (v) { $('v-' + v).classList.toggle('on', v === name); });
+  ['home', 'repair', 'supply', 'ticket'].forEach(function (v) { $('v-' + v).classList.toggle('on', v === name); });
   document.body.classList.toggle('sub', name !== 'home');
-  $('ttl').firstChild.nodeValue = name === 'repair' ? 'Repair' : name === 'supply' ? 'Supply' : 'WS Quick';
+  $('ttl').firstChild.nodeValue = name === 'repair' ? 'Repair' : name === 'supply' ? 'Supply' : name === 'ticket' ? 'Ticket' : 'WS Quick';
   $('ttl').querySelector('small').style.display = name === 'home' ? '' : 'none';
   window.scrollTo(0, 0);
   if (name === 'repair') prepRepair();
   if (name === 'supply') prepSupply();
+  if (name === 'ticket' && window.WSTicket) window.WSTicket.prep();
   if (name === 'home') renderHome();
 }
 
@@ -592,7 +624,8 @@ function renderHome() {
 }
 
 /* ---------- done sheet ---------- */
-function finish(title, sub, againLabel) {
+function finish(title, sub, againLabel, kind) {
+  if (kind) lastKind = kind;
   vib();
   $('done-t').textContent = title;
   $('done-p').textContent = sub + (navigator.onLine === false ? ' - saved on your phone, will send when you have signal.' : '');
@@ -624,6 +657,7 @@ document.addEventListener('click', function (ev) {
   if (a === 'home') show('home');
   else if (a === 'go-repair') show('repair');
   else if (a === 'go-supply') show('supply');
+  else if (a === 'go-ticket') show('ticket');
   else if (a === 'submit-repair') submitRepair();
   else if (a === 'submit-supply') submitSupply();
   else if (a === 'toggle-urgent') setUrgent(!sUrgent);
@@ -652,12 +686,187 @@ window.addEventListener('offline', updatePill);
 document.addEventListener('visibilitychange', function () { if (!document.hidden) { updatePill(); syncNow(true); } });
 setInterval(function () { if (D.queue.length || D.photoQ.length) syncNow(true); }, 30000);
 
+/* bridge for the support-ticket form (separate script below) */
+window.WSQ = {
+  finish: finish, toast: toast,
+  recent: function (icon, title, sub) { D.recent.unshift({ id: 'tk' + Date.now(), icon: icon, title: title, sub: sub, ts: Date.now(), synced: true }); D.recent = D.recent.slice(0, 15); persist(); renderHome(); }
+};
+
 /* ---------- start ---------- */
 var go = (location.search.match(/[?&]go=(repair|supply)/) || [])[1];
 buildEquip(); buildStores(); buildCommon(); updatePill(); renderHome(); renderPhotos();
 show(go || 'home');
 syncNow(true);
 if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+})();
+</script>
+<script>
+/* Support tickets: same Firebase project and data as WS Staff Hub, so tickets show up there exactly the same. Needs signal. */
+(function () {
+'use strict';
+var CFG = {
+  apiKey: "AIzaSyDRbZFMjtpWrTDMPcJr3aLML9LS83ib0HQ",
+  authDomain: "ws-staff-hub.firebaseapp.com",
+  projectId: "ws-staff-hub",
+  storageBucket: "ws-staff-hub.firebasestorage.app",
+  messagingSenderId: "266809370912",
+  appId: "1:266809370912:web:025b26213b1f272350cf45"
+};
+var BASE = 'https://www.gstatic.com/firebasejs/10.14.1/';
+var DEFAULT_CATS = ["IT / Tech Support", "Equipment & Maintenance", "Field Issue", "Procedure Question", "Schedule / Payroll", "Other"];
+var PRIORITIES = { low: "Low", normal: "Normal", high: "High", urgent: "Urgent" };
+var FB = null, loading = null, started = false, me = null, myName = '', photos = [], busy = false;
+function g(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+function state(which, msg) {
+  g('t-msg').style.display = (which === 'msg') ? '' : 'none';
+  g('t-login').style.display = (which === 'login') ? '' : 'none';
+  g('t-form').style.display = (which === 'form') ? '' : 'none';
+  if (msg != null) g('t-msg').innerHTML = msg;
+}
+function load() {
+  if (loading) return loading;
+  loading = Promise.all([import(BASE + 'firebase-app.js'), import(BASE + 'firebase-auth.js'), import(BASE + 'firebase-firestore.js'), import(BASE + 'firebase-storage.js')])
+    .then(function (m) {
+      var app = m[0].initializeApp(CFG);
+      FB = { A: m[1], F: m[2], S: m[3], auth: m[1].getAuth(app), db: m[2].getFirestore(app), storage: m[3].getStorage(app) };
+      return FB;
+    });
+  loading.catch(function () { loading = null; });
+  return loading;
+}
+function offline() {
+  state('msg', 'Tickets need a signal to send.<div style="margin-top:10px"><button class="btn sm" id="t-retry">Try again</button></div>');
+  g('t-retry').onclick = prep;
+}
+function prep() {
+  state('msg', 'Loading...');
+  load().then(function () {
+    if (!started) { started = true; FB.A.onAuthStateChanged(FB.auth, onAuth); }
+    else onAuth(FB.auth.currentUser);
+  }, offline);
+}
+
+function onAuth(u) {
+  me = u;
+  if (!u) { g('t-pw').value = ''; state('login'); return; }
+  state('msg', 'Loading...');
+  var F = FB.F, ref = F.doc(FB.db, 'users', u.uid);
+  F.getDoc(ref).then(function (s) {
+    if (!s.exists()) {
+      var nm = u.displayName || (u.email || 'Staff').split('@')[0];
+      return F.setDoc(ref, { name: nm, email: u.email || '', role: 'staff', createdAt: F.serverTimestamp() }).then(function () { return { name: nm }; });
+    }
+    return s.data();
+  }).then(function (d) {
+    myName = (d && d.name) || u.displayName || (u.email || 'Staff').split('@')[0];
+    return Promise.all([
+      F.getDoc(F.doc(FB.db, 'config', 'categories')).then(function (s) { return (s.exists() && Array.isArray(s.data().list) && s.data().list.length) ? s.data().list : DEFAULT_CATS; }, function () { return DEFAULT_CATS; }),
+      F.getDocs(F.collection(FB.db, 'users')).then(function (q) { var a = []; q.forEach(function (x) { a.push({ id: x.id, name: x.data().name || 'Someone' }); }); return a; }, function () { return []; })
+    ]);
+  }).then(function (r) {
+    g('t-cat').innerHTML = r[0].map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+    g('t-pri').innerHTML = Object.keys(PRIORITIES).map(function (k) { return '<option value="' + k + '"' + (k === 'normal' ? ' selected' : '') + '>' + PRIORITIES[k] + '</option>'; }).join('');
+    g('t-assign').innerHTML = '<option value="">Unassigned</option>' + r[1].map(function (x) { return '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>'; }).join('');
+    g('t-who').textContent = 'Signed in as ' + myName;
+    state('form');
+  }, function (e) {
+    console.error(e);
+    state('msg', /permission/i.test(String(e && e.message)) ? 'Your account is not set up for tickets yet. Ask the office.' : 'Could not load tickets. Check your signal.<div style="margin-top:10px"><button class="btn sm" id="t-retry">Try again</button></div>');
+    var b = g('t-retry'); if (b) b.onclick = prep;
+  });
+}
+
+/* sign in / out */
+g('t-signin').onclick = function () {
+  var em = g('t-em').value.trim(), pw = g('t-pw').value, er = g('t-lerr');
+  er.classList.remove('show');
+  if (!em || !pw) { er.textContent = 'Enter your email and password.'; er.classList.add('show'); return; }
+  var b = g('t-signin'); b.disabled = true;
+  FB.A.signInWithEmailAndPassword(FB.auth, em, pw).catch(function (x) {
+    er.textContent = /invalid|wrong|credential|not-found/i.test(x.code + x.message) ? 'Email or password is incorrect.' : 'Could not sign in: ' + (x.code || x.message);
+    er.classList.add('show');
+  }).then(function () { b.disabled = false; });
+};
+g('t-pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') g('t-signin').click(); });
+g('t-out').onclick = function (e) { e.preventDefault(); if (FB) FB.A.signOut(FB.auth); };
+
+/* photos: shrink to 1600px JPEG like Staff Hub */
+function resize(file) {
+  return new Promise(function (resolve, reject) {
+    var u = URL.createObjectURL(file), im = new Image();
+    im.onload = function () {
+      URL.revokeObjectURL(u);
+      var r = Math.min(1, 1600 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+      c.width = Math.round(im.width * r); c.height = Math.round(im.height * r);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      c.toBlob(function (b) { b ? resolve(b) : reject(new Error('resize failed')); }, 'image/jpeg', 0.82);
+    };
+    im.onerror = function () { URL.revokeObjectURL(u); reject(new Error('That file is not a photo')); };
+    im.src = u;
+  });
+}
+function upload(file) {
+  return resize(file).then(function (blob) {
+    var S = FB.S, r = S.ref(FB.storage, 'attachments/tickets/' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.jpg');
+    return S.uploadBytes(r, blob, { contentType: 'image/jpeg' }).then(function () { return S.getDownloadURL(r); });
+  });
+}
+function phNote() { g('t-phnote').textContent = photos.length ? photos.length + (photos.length === 1 ? ' photo attached' : ' photos attached') : ''; }
+g('t-addph').onclick = function () { g('t-file').click(); };
+g('t-file').addEventListener('change', function () {
+  photos = photos.concat(Array.prototype.slice.call(this.files || [])).slice(0, 6);
+  this.value = ''; phNote();
+});
+
+/* submit: same steps and data shape as Staff Hub's New support ticket */
+function err(m) { var e = g('t-err'); e.textContent = m; e.classList.add('show'); }
+g('t-submit').onclick = function () {
+  if (busy || !me) return;
+  g('t-err').classList.remove('show');
+  var title = g('t-title').value.trim();
+  if (!title) return err('Add a short title.');
+  if (navigator.onLine === false) return err('No signal. Tickets need a connection to send.');
+  var F = FB.F, db = FB.db, btn = g('t-submit'), uid = me.uid;
+  var category = g('t-cat').value, priority = g('t-pri').value, desc = g('t-desc').value.trim(), assigned = g('t-assign').value, files = photos.slice();
+  busy = true; btn.disabled = true; btn.textContent = files.length ? 'Uploading photos...' : 'Sending...';
+  var urls = [];
+  files.reduce(function (p, f) { return p.then(function () { return upload(f).then(function (u) { urls.push(u); }); }); }, Promise.resolve())
+    .then(function () {
+      return F.runTransaction(db, function (tx) {
+        var r = F.doc(db, 'counters', 'tickets');
+        return tx.get(r).then(function (s) { var v = (s.exists() ? s.data().n : 0) + 1; tx.set(r, { n: v }); return v; });
+      });
+    })
+    .then(function (n) {
+      var code = 'WS-' + String(n).padStart(4, '0');
+      return F.addDoc(F.collection(db, 'tickets'), {
+        number: n, code: code, title: title, category: category, priority: priority, status: 'open', description: desc, photos: urls,
+        createdBy: uid, createdByName: myName, assignedTo: assigned, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp()
+      }).then(function () { return code; });
+    })
+    .then(function (code) {
+      /* ticket-feed channel message, best effort */
+      var text = '🎫 ' + code + ' opened by ' + myName + ': ' + title + ' (' + category + ' · ' + PRIORITIES[priority] + ')';
+      var b = F.writeBatch(db), upd = { lastMessageAt: F.serverTimestamp(), lastMessageBy: uid, lastMessageText: text.slice(0, 120) };
+      upd['lastRead.' + uid] = F.serverTimestamp();
+      b.set(F.doc(F.collection(db, 'conversations', 'tickets', 'messages')), { uid: uid, name: myName, text: text, system: true, createdAt: F.serverTimestamp() });
+      b.update(F.doc(db, 'conversations', 'tickets'), upd);
+      b.commit().catch(function () {});
+      g('t-title').value = ''; g('t-desc').value = ''; g('t-assign').value = ''; g('t-pri').value = 'normal'; photos = []; phNote();
+      window.WSQ.recent('🎫', code + ' - ' + title, category + ' · ' + PRIORITIES[priority]);
+      window.WSQ.finish('Ticket submitted', code + ' - ' + title, 'Another ticket', 'ticket');
+    })
+    .catch(function (x) {
+      console.error(x);
+      var m = String((x && (x.code || x.message)) || '');
+      err(/storage\//.test(m) ? 'Photo upload failed. Try fewer photos.' : /permission/i.test(m) ? 'Not allowed. Ask the office to check your account.' : 'Could not create the ticket. Are you online?');
+    })
+    .then(function () { busy = false; btn.disabled = false; btn.textContent = 'Submit ticket'; });
+};
+
+window.WSTicket = { prep: prep };
 })();
 </script>
 </body>
